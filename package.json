@@ -1,0 +1,21 @@
+{
+  "name": "blockchain-digital-identity",
+  "version": "1.0.0",
+  "description": "Blockchain-based digital identity system (Solidity + Ethers.js + MetaMask)",
+  "scripts": {
+    "compile": "node compile.js",
+    "test": "node compile.js && node test.js",
+    "chain": "ganache --wallet.deterministic --chain.chainId 1337 --port 8545",
+    "deploy": "node compile.js && node deploy.js",
+    "web": "http-server -p 8080 -c-1 ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ethers": "^6.17.0",
+    "ganache": "^7.9.2",
+    "http-server": "^14.1.1",
+    "solc": "^0.8.26"
+  }
+}

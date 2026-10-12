@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blockchain Digital Identity</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+  :root { --bg:#f5f6fa; --card:#fff; --ink:#1c2333; --mute:#6b7285; --line:#e2e5ee; --brand:#3b5bdb; --ok:#2b8a3e; --bad:#c92a2a; --warn:#e67700; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--brand); color:#fff; padding:16px 24px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  header h1 { margin:0; font-size:20px; }
+  header small { opacity:.85; display:block; font-weight:400; }
+  main { max-width:1000px; margin:0 auto; padding:20px; display:grid; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .card h2 { margin:0 0 4px; font-size:17px; }
+  .card p.hint { margin:0 0 12px; color:var(--mute); font-size:13px; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); }
+  @media (max-width:520px){ .grid { grid-template-columns:1fr; } }
+  label { display:block; font-size:12px; font-weight:600; color:var(--mute); margin:10px 0 3px; text-transform:uppercase; letter-spacing:.03em; }
+  input, select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; color:var(--ink); }
+  input[type=file] { padding:6px; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:6px; padding:9px 14px; font:inherit; font-weight:600; cursor:pointer; margin-top:12px; }
+  button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); margin-top:0; }
+  button.danger { background:var(--bad); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > * { flex:1 1 auto; }
+  .row button { flex:0 0 auto; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; font-weight:700; background:#fff; color:var(--brand); margin-left:4px; }
+  .badge.admin { background:#ffe066; color:#5f3dc4; } .badge.issuer { background:#b2f2bb; color:#1b5e20; } .badge.user { background:#d0ebff; color:#0b5394; } .badge.none { background:#eee; color:#555; }
+  .msg { margin-top:10px; padding:8px 10px; border-radius:6px; font-size:13px; display:none; word-break:break-all; }
+  .msg.show { display:block; } .msg.ok { background:#ebfbee; color:var(--ok); } .msg.bad { background:#fff5f5; color:var(--bad); } .msg.info { background:#fff9db; color:var(--warn); }
+  .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; word-break:break-all; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-size:11px; text-transform:uppercase; }
+  .tag { padding:1px 8px; border-radius:99px; font-size:11px; font-weight:700; }
+  .tag.valid { background:#d3f9d8; color:#1b5e20; } .tag.revoked { background:#ffe3e3; color:#a61e1e; } .tag.expired { background:#fff3bf; color:#8a5a00; }
+  .hidden { display:none !important; }
+  .verdict { font-size:18px; font-weight:800; margin-top:12px; }
+  .verdict.ok { color:var(--ok); } .verdict.bad { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Blockchain-Based Digital Identity System<small>Self-sovereign identity on Ethereum. Only hashes go on-chain, never personal data.</small></h1>
+  <div class="row" style="flex:0 0 auto">
+    <span id="netInfo" class="mono"></span>
+    <button id="btnConnect" class="ghost" style="background:#fff">Connect MetaMask</button>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>1. Contract & account</h2>
+    <p class="hint">Paste the address of your deployed <code>DigitalIdentity</code> contract (from Remix or <code>node deploy.js</code>).</p>
+    <div class="row">
+      <input id="contractAddr" placeholder="0x… contract address" class="mono">
+      <button id="btnLoad">Load contract</button>
+    </div>
+    <div style="margin-top:10px">Account: <span id="acct" class="mono">not connected</span> <span id="roleBadges"></span></div>
+    <div id="msgLoad" class="msg"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <div class="grid">
+      <!-- ADMIN -->
+      <section class="card" id="cardAdmin">
+        <h2>Admin: manage trusted issuers</h2>
+        <p class="hint">Only the account that deployed the contract can do this.</p>
+        <label>Issuer wallet address (college, bank, government office)</label>
+        <input id="issuerAddr" class="mono" placeholder="0x…">
+        <div class="row">
+          <button id="btnAddIssuer">Add issuer</button>
+          <button id="btnRemoveIssuer" class="danger">Remove issuer</button>
+          <button id="btnCheckIssuer" class="ghost">Check status</button>
+        </div>
+        <div id="msgAdmin" class="msg"></div>
+      </section>
+
+      <!-- USER -->
+      <section class="card" id="cardUser">
+        <h2>User: register my identity</h2>
+        <p class="hint">Your details are hashed in your browser. Only the hash is stored on-chain.</p>
+        <label>Full name</label><input id="uName" placeholder="Anusha Shibu">
+        <label>Date of birth</label><input id="uDob" type="date">
+        <label>ID number (roll no / Aadhaar / passport)</label><input id="uIdNo" placeholder="05">
+        <button id="btnRegister">Register identity</button>
+        <div id="msgUser" class="msg"></div>
+      </section>
+    </div>
+
+    <!-- ISSUER -->
+    <section class="card" id="cardIssuer">
+      <h2>Issuer: issue a credential</h2>
+      <p class="hint">Attach the document (or type its content). The browser computes its keccak256 hash and only that hash is written to the chain. The user must be registered first.</p>
+      <div class="grid" style="margin:0">
+        <div>
+          <label>Holder wallet address</label><input id="iHolder" class="mono" placeholder="0x…">
+          <label>Credential type</label>
+          <select id="iType"><option>Student ID</option><option>Degree Certificate</option><option>Aadhaar</option><option>Driving Licence</option><option>Passport</option><option>Employee ID</option></select>
+          <label>Valid for (days, 0 = never expires)</label><input id="iDays" type="number" min="0" value="365">
+        </div>
+        <div>
+          <label>Document file</label><input id="iFile" type="file">
+          <label>…or document text</label><input id="iText" placeholder="e.g. Anusha Shibu | Roll 05 | B.E. Computer Engg">
+          <label>Computed hash</label><div id="iHash" class="mono">(none yet)</div>
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnIssue">Issue credential</button>
+        <button id="btnRevoke" class="danger">Revoke credential #</button>
+        <input id="revokeId" type="number" min="1" placeholder="ID" style="max-width:90px;margin-top:12px">
+      </div>
+      <div id="msgIssuer" class="msg"></div>
+    </section>
+
+    <!-- HOLDER WALLET -->
+    <section class="card">
+      <h2>My credentials (wallet)</h2>
+      <p class="hint">Credentials issued to the connected account. Share the ID and the document with a verifier.</p>
+      <button id="btnMine" class="ghost">Refresh my credentials</button>
+      <div id="mine"></div>
+    </section>
+
+    <!-- VERIFIER -->
+    <section class="card">
+      <h2>Verifier: check a credential</h2>
+      <p class="hint">Anyone can verify. Needs the credential ID and the original document (or its hash). Works without connecting a wallet if MetaMask is on the right network.</p>
+      <div class="grid" style="margin:0">
+        <div><label>Credential ID</label><input id="vId" type="number" min="1" placeholder="1"></div>
+        <div>
+          <label>Original document file</label><input id="vFile" type="file">
+          <label>…or text / hash (0x… 66 chars)</label><input id="vText" placeholder="document text or 0x hash">
+        </div>
+      </div>
+      <button id="btnVerify">Verify</button>
+      <div id="vResult"></div>
+    </section>
+
+    <!-- AUDIT LOG -->
+    <section class="card">
+      <h2>Audit trail (on-chain events)</h2>
+      <button id="btnLog" class="ghost">Load event log</button>
+      <table id="logTable" class="hidden"><thead><tr><th>Block</th><th>Event</th><th>Details</th></tr></thead><tbody></tbody></table>
+    </section>
+  </div>
+</main>
+
+<script>
+const ABI = [
+  "function admin() view returns (address)",
+  "function isIssuer(address) view returns (bool)",
+  "function identities(address) view returns (bool registered, bytes32 profileHash, uint256 registeredAt)",
+  "function credentialCount() view returns (uint256)",
+  "function addIssuer(address)",
+  "function removeIssuer(address)",
+  "function registerIdentity(bytes32)",
+  "function getMyCredentialIds() view returns (uint256[])",
+  "function issueCredential(address holder, string credType, bytes32 dataHash, uint256 validForSeconds) returns (uint256)",
+  "function revokeCredential(uint256)",
+  "function getCredential(uint256) view returns (tuple(uint256 id, address holder, address issuer, string credType, bytes32 dataHash, uint256 issuedAt, uint256 expiresAt, bool revoked))",
+  "function verifyCredential(uint256, bytes32) view returns (bool)",
+  "event IssuerAdded(address indexed issuer)",
+  "event IssuerRemoved(address indexed issuer)",
+  "event IdentityRegistered(address indexed user, bytes32 profileHash)",
+  "event CredentialIssued(uint256 indexed id, address indexed holder, address indexed issuer, string credType)",
+  "event CredentialRevoked(uint256 indexed id, address indexed issuer)"
+];
+
+const $ = (id) => document.getElementById(id);
+let provider, signer, account, contract;
+const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function say(id, text, kind) {
+  const el = $(id);
+  el.className = "msg show " + (kind || "info");
+  el.textContent = text;
+}
+function errText(e) {
+  // MetaMask often hides the revert reason behind "Internal JSON-RPC error", so search every place it may appear.
+  let blob = "";
+  try { blob = [e.reason, e.shortMessage, e.message, JSON.stringify(e.info || {}), JSON.stringify(e.error || {}), JSON.stringify(e.data || {})].join(" "); } catch (x) { blob = String(e); }
+  if (e.code === 4001 || e.code === "ACTION_REJECTED" || /user (rejected|denied)/i.test(blob)) return "Transaction was rejected in MetaMask.";
+  const known = ["Only admin", "Only issuer", "Only original issuer", "Holder not registered", "Already registered", "Already revoked", "Credential not found", "Zero address"];
+  for (const k of known) if (blob.includes(k)) return "Rejected by the smart contract: " + k;
+  if (/Internal JSON-RPC error/i.test(blob)) return "Rejected by the smart contract. This account is probably not allowed to do this action, or the input is invalid.";
+  return e.reason || (e.info && e.info.error && e.info.error.message) || e.shortMessage || e.message || String(e);
+}
+async function run(msgId, label, fn) {
+  try {
+    say(msgId, label + "…", "info");
+    await fn();
+  } catch (e) {
+    say(msgId, "Failed: " + errText(e), "bad");
+  }
+}
+async function tx(msgId, label, promiseFn) {
+  const t = await promiseFn();
+  say(msgId, label + ": waiting for confirmation… " + t.hash, "info");
+  const r = await t.wait();
+  return r;
+}
+
+async function hashInput(fileEl, textVal) {
+  const f = fileEl.files[0];
+  if (f) return ethers.keccak256(new Uint8Array(await f.arrayBuffer()));
+  const t = (textVal || "").trim();
+  if (!t) throw new Error("Choose a document file or enter text");
+  if (/^0x[0-9a-fA-F]{64}$/.test(t)) return t;
+  return ethers.keccak256(ethers.toUtf8Bytes(t));
+}
+
+// ---------- connect ----------
+async function connect() {
+  if (!window.ethereum) { say("msgLoad", "MetaMask not found. Install the MetaMask extension and open this page via http://localhost (not file://).", "bad"); return false; }
+  provider = new ethers.BrowserProvider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  const net = await provider.getNetwork();
+  $("acct").textContent = account;
+  $("netInfo").textContent = "chain " + net.chainId;
+  $("btnConnect").textContent = "Connected " + short(account);
+  return true;
+}
+
+async function loadContract() {
+  const addr = $("contractAddr").value.trim();
+  if (!ethers.isAddress(addr)) return say("msgLoad", "Enter a valid contract address", "bad");
+  if (!signer && !(await connect())) return;
+  const code = await provider.getCode(addr);
+  if (code === "0x") return say("msgLoad", "No contract at this address on the current network. Check the network selected in MetaMask.", "bad");
+  contract = new ethers.Contract(addr, ABI, signer);
+  try { localStorage.setItem("diContract", addr); } catch (e) {}
+  $("app").classList.remove("hidden");
+  await refreshRoles();
+  say("msgLoad", "Contract loaded. Total credentials issued so far: " + (await contract.credentialCount()), "ok");
+}
+
+async function refreshRoles() {
+  const [adm, iss, idn] = await Promise.all([contract.admin(), contract.isIssuer(account), contract.identities(account)]);
+  let h = "";
+  if (adm.toLowerCase() === account.toLowerCase()) h += '<span class="badge admin">ADMIN</span>';
+  if (iss) h += '<span class="badge issuer">ISSUER</span>';
+  if (idn.registered) h += '<span class="badge user">REGISTERED USER</span>';
+  if (!h) h = '<span class="badge none">no role yet</span>';
+  $("roleBadges").innerHTML = h;
+}
+
+// ---------- admin ----------
+function issuerAddrOrThrow() {
+  const a = $("issuerAddr").value.trim();
+  if (!ethers.isAddress(a)) throw new Error("Enter a valid issuer address");
+  return a;
+}
+$("btnAddIssuer").onclick = () => run("msgAdmin", "Adding issuer", async () => {
+  const a = issuerAddrOrThrow();
+  await tx("msgAdmin", "Add issuer", () => contract.addIssuer(a));
+  say("msgAdmin", "Issuer added: " + a, "ok"); await refreshRoles();
+});
+$("btnRemoveIssuer").onclick = () => run("msgAdmin", "Removing issuer", async () => {
+  const a = issuerAddrOrThrow();
+  await tx("msgAdmin", "Remove issuer", () => contract.removeIssuer(a));
+  say("msgAdmin", "Issuer removed. All their credentials now fail verification.", "ok"); await refreshRoles();
+});
+$("btnCheckIssuer").onclick = () => run("msgAdmin", "Checking", async () => {
+  const a = issuerAddrOrThrow();
+  say("msgAdmin", a + (await contract.isIssuer(a) ? " IS a trusted issuer" : " is NOT a trusted issuer"), "info");
+});
+
+// ---------- user ----------
+$("btnRegister").onclick = () => run("msgUser", "Registering", async () => {
+  const name = $("uName").value.trim(), dob = $("uDob").value, idn = $("uIdNo").value.trim();
+  if (!name || !dob || !idn) throw new Error("Fill in name, date of birth and ID number");
+  const hash = ethers.keccak256(ethers.toUtf8Bytes([name, dob, idn].join("|")));
+  await tx("msgUser", "Register", () => contract.registerIdentity(hash));
+  say("msgUser", "Identity registered on-chain. Profile hash: " + hash, "ok"); await refreshRoles();
+});
+
+// ---------- issuer ----------
+async function previewHash() {
+  try { $("iHash").textContent = await hashInput($("iFile"), $("iText").value); }
+  catch (e) { $("iHash").textContent = "(none yet)"; }
+}
+$("iFile").onchange = previewHash; $("iText").oninput = previewHash;
+
+$("btnIssue").onclick = () => run("msgIssuer", "Issuing", async () => {
+  const holder = $("iHolder").value.trim();
+  if (!ethers.isAddress(holder)) throw new Error("Enter a valid holder address");
+  const h = await hashInput($("iFile"), $("iText").value);
+  const days = Number($("iDays").value || 0);
+  const r = await tx("msgIssuer", "Issue", () => contract.issueCredential(holder, $("iType").value, h, days * 86400));
+  let id = "?";
+  for (const log of r.logs) {
+    try { const p = contract.interface.parseLog(log); if (p && p.name === "CredentialIssued") id = p.args.id.toString(); } catch (e) {}
+  }
+  say("msgIssuer", "Credential issued. ID = " + id + ". Give this ID and the document to the holder. Hash: " + h, "ok");
+});
+$("btnRevoke").onclick = () => run("msgIssuer", "Revoking", async () => {
+  const id = $("revokeId").value; if (!id) throw new Error("Enter credential ID to revoke");
+  await tx("msgIssuer", "Revoke", () => contract.revokeCredential(id));
+  say("msgIssuer", "Credential #" + id + " revoked.", "ok");
+});
+
+// ---------- credential status ----------
+function statusOf(c, valid) {
+  if (c.revoked) return ["revoked", "REVOKED"];
+  if (c.expiresAt !== 0n && BigInt(Math.floor(Date.now() / 1000)) > c.expiresAt) return ["expired", "EXPIRED"];
+  return valid ? ["valid", "VALID"] : ["revoked", "INVALID"];
+}
+const fmtDate = (t) => (t === 0n ? "never" : new Date(Number(t) * 1000).toLocaleString());
+
+// ---------- my credentials ----------
+$("btnMine").onclick = () => run("msgLoad", "Loading credentials", async () => {
+  const ids = await contract.getMyCredentialIds();
+  if (!ids.length) { $("mine").innerHTML = '<p class="hint" style="margin-top:10px">No credentials issued to this account yet.</p>'; return say("msgLoad", "Loaded.", "ok"); }
+  let rows = "";
+  for (const id of ids) {
+    const c = await contract.getCredential(id);
+    const valid = await contract.verifyCredential(id, c.dataHash);
+    const [cls, label] = statusOf(c, valid);
+    rows += `<tr><td>#${c.id}</td><td>${esc(c.credType)}</td><td class="mono">${short(c.issuer)}</td><td>${fmtDate(c.issuedAt)}</td><td>${fmtDate(c.expiresAt)}</td><td><span class="tag ${cls}">${label}</span></td></tr>`;
+  }
+  $("mine").innerHTML = "<table><thead><tr><th>ID</th><th>Type</th><th>Issuer</th><th>Issued</th><th>Expires</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  say("msgLoad", "Loaded " + ids.length + " credential(s).", "ok");
+});
+
+// ---------- verifier ----------
+$("btnVerify").onclick = async () => {
+  const out = $("vResult");
+  try {
+    const id = $("vId").value; if (!id) throw new Error("Enter a credential ID");
+    const h = await hashInput($("vFile"), $("vText").value);
+    const ok = await contract.verifyCredential(id, h);
+    let detail = "";
+    try {
+      const c = await contract.getCredential(id);
+      const [, label] = statusOf(c, ok);
+      detail = `<table><tr><th>Holder</th><td class="mono">${c.holder}</td></tr><tr><th>Issuer</th><td class="mono">${c.issuer}</td></tr>
+        <tr><th>Type</th><td>${esc(c.credType)}</td></tr><tr><th>Issued</th><td>${fmtDate(c.issuedAt)}</td></tr>
+        <tr><th>Expires</th><td>${fmtDate(c.expiresAt)}</td></tr><tr><th>On-chain status</th><td>${label}</td></tr>
+        <tr><th>Hash matches document</th><td>${c.dataHash === h ? "Yes" : "No: document was altered or is a different file"}</td></tr></table>`;
+    } catch (e) { detail = '<p class="hint">No credential with this ID exists.</p>'; }
+    out.innerHTML = `<div class="verdict ${ok ? "ok" : "bad"}">${ok ? "✔ CREDENTIAL IS AUTHENTIC AND VALID" : "✘ CREDENTIAL IS NOT VALID"}</div>` + detail;
+  } catch (e) { out.innerHTML = `<div class="msg show bad">${esc(errText(e))}</div>`; }
+};
+
+// ---------- audit log ----------
+$("btnLog").onclick = () => run("msgLoad", "Loading events", async () => {
+  const logs = await contract.queryFilter("*", 0, "latest");
+  const tb = $("logTable").querySelector("tbody"); tb.innerHTML = "";
+  for (const l of logs.reverse()) {
+    if (!l.fragment) continue;
+    const args = l.args.map((v, i) => `${l.fragment.inputs[i].name}=${typeof v === "bigint" ? v : String(v).length > 20 ? short(String(v)) : v}`).join(", ");
+    tb.insertAdjacentHTML("beforeend", `<tr><td>${l.blockNumber}</td><td>${l.fragment.name}</td><td class="mono">${esc(args)}</td></tr>`);
+  }
+  $("logTable").classList.remove("hidden");
+  say("msgLoad", logs.length + " event(s) loaded.", "ok");
+});
+
+// ---------- wiring ----------
+$("btnConnect").onclick = connect;
+$("btnLoad").onclick = loadContract;
+try { const s = localStorage.getItem("diContract"); if (s) $("contractAddr").value = s; } catch (e) {}
+// Auto-reconnect: if this account is already connected to the site and a contract address was saved, load it.
+(async () => {
+  try {
+    if (!window.ethereum || !$("contractAddr").value) return;
+    const accs = await window.ethereum.request({ method: "eth_accounts" });
+    if (accs.length) await loadContract();
+  } catch (e) {}
+})();
+if (window.ethereum) {
+  window.ethereum.on && window.ethereum.on("accountsChanged", () => location.reload());
+  window.ethereum.on && window.ethereum.on("chainChanged", () => location.reload());
+}
+</script>
+</body>
+</html>
